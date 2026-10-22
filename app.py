@@ -105,8 +105,8 @@ try:
   if 'lat' in df.columns and 'lon' in df.columns:
     df_mapa = df.dropna(subset=['lat', 'lon'])
     if not df_mapa.empty:
-      # Uso de scatter_map compatible con versiones modernas de Plotly
-      fig_map = px.scatter_map(
+      # Usando scatter_mapbox de manera correcta
+      fig_map = px.scatter_mapbox(
           df_mapa,
           lat='lat',
           lon='lon',
