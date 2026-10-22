@@ -26,39 +26,60 @@ def cargar_datos():
 try:
   df = cargar_datos()
 
+  # Limpiar espacios en blanco en los nombres de las columnas
+  df.columns = df.columns.str.strip()
+
+  # Detección inteligente de columnas (flexible ante mayúsculas/minúsculas)
+  col_comuna = next(
+      (c for c in df.columns if c.lower() in ['comuna', 'comunas']), None
+  )
+  col_barrio = next(
+      (c for c in df.columns if c.lower() in ['barrio', 'barrios']), None
+  )
+  col_rubro = next(
+      (c for c in df.columns if c.lower() in ['rubro', 'rubros']), None
+  )
+  col_lat = next(
+      (c for c in df.columns if c.lower() in ['lat', 'latitud']), None
+  )
+  col_lon = next(
+      (c for c in df.columns if c.lower() in ['lon', 'long', 'longitud']), None
+  )
+  col_rs = next(
+      (c for c in df.columns if 'razon' in c.lower() or 'social' in c.lower()),
+      df.columns[0],
+  )
+
   # --- BARRA LATERAL (FILTROS) ---
   st.sidebar.header('Filtros de Búsqueda')
 
-  # Filtro por Comuna
-  if 'comuna' in df.columns:
+  if col_comuna:
     comunas = ['Todas'] + sorted(
-        df['comuna'].dropna().astype(str).unique().tolist()
+        df[col_comuna].dropna().astype(str).unique().tolist()
     )
     comuna_elegida = st.sidebar.selectbox('Seleccionar Comuna', comunas)
     if comuna_elegida != 'Todas':
-      df = df[df['comuna'].astype(str) == comuna_elegida]
+      df = df[df[col_comuna].astype(str) == comuna_elegida]
 
-  # Filtro por Barrio
-  if 'barrio' in df.columns:
+  if col_barrio:
     barrios = ['Todos'] + sorted(
-        df['barrio'].dropna().astype(str).unique().tolist()
+        df[col_barrio].dropna().astype(str).unique().tolist()
     )
     barrio_elegido = st.sidebar.selectbox('Seleccionar Barrio', barrios)
     if barrio_elegido != 'Todos':
-      df = df[df['barrio'].astype(str) == barrio_elegido]
+      df = df[df[col_barrio].astype(str) == barrio_elegido]
 
-  # Filtro por Rubro
-  if 'Rubro' in df.columns:
+  if col_rubro:
     rubros = ['Todos'] + sorted(
-        df['Rubro'].dropna().astype(str).unique().tolist()
+        df[col_rubro].dropna().astype(str).unique().tolist()
     )
     rubro_elegido = st.sidebar.selectbox('Seleccionar Rubro', rubros)
     if rubro_elegido != 'Todos':
-      df = df[df['Rubro'].astype(str) == rubro_elegido]
+      df = df[df[col_rubro].astype(str) == rubro_elegido]
 
   total_habilitaciones = len(df)
 
-  # Detectar año o período si existe alguna columna relacionada
+  # Detectar año o período si existe
   anio_texto = '2025 / 2026'
   for col in df.columns:
     if 'anio' in col.lower() or 'año' in col.lower() or 'fecha' in col.lower():
@@ -69,7 +90,7 @@ try:
       except:
         pass
 
-  # --- SECCIÓN 1: TOTALES, AÑO Y PORCENTAJES POR RUBRO ---
+  # --- SECCIÓN 1: TOTALES Y PORCENTAJES ---
   st.markdown('---')
   st.subheader('📈 1. Totales, Año y Porcentajes por Rubro')
 
@@ -81,9 +102,9 @@ try:
   with col_m2:
     st.metric(label='Año / Período del Registro', value=anio_texto)
 
-  if 'Rubro' in df.columns and total_habilitaciones > 0:
-    rubro_counts = df['Rubro'].value_counts()
-    rubro_pct = df['Rubro'].value_counts(normalize=True) * 100
+  if col_rubro and total_habilitaciones > 0:
+    rubro_counts = df[col_rubro].value_counts()
+    rubro_pct = df[col_rubro].value_counts(normalize=True) * 100
     df_rubro = pd.DataFrame(
         {'Cantidad': rubro_counts, 'Porcentaje (%)': rubro_pct}
     ).reset_index()
@@ -96,26 +117,25 @@ try:
         hide_index=True,
     )
   else:
-    st.warning('No hay datos de rubros disponibles.')
+    st.warning(
+        'No se encontró la columna de Rubro para calcular los porcentajes.'
+    )
 
-  # --- SECCIÓN 2: MAPA CON PUNTOS DIFERENCIADOS POR RUBRO ---
+  # --- SECCIÓN 2: MAPA ---
   st.markdown('---')
   st.subheader('🗺️ 2. Mapa de Distribución Territorial (Puntos por Rubro)')
 
-  if 'lat' in df.columns and 'lon' in df.columns:
-    df_mapa = df.dropna(subset=['lat', 'lon'])
+  if col_lat and col_lon:
+    df_mapa = df.dropna(subset=[col_lat, col_lon])
     if not df_mapa.empty:
-      # Usando scatter_mapbox de manera correcta
       fig_map = px.scatter_mapbox(
           df_mapa,
-          lat='lat',
-          lon='lon',
-          color='Rubro' if 'Rubro' in df.columns else None,
-          hover_name='Razon Social'
-          if 'Razon Social' in df.columns
-          else df.columns[0],
-          hover_data=['barrio', 'comuna']
-          if 'barrio' in df.columns and 'comuna' in df.columns
+          lat=col_lat,
+          lon=col_lon,
+          color=col_rubro if col_rubro else None,
+          hover_name=col_rs,
+          hover_data=[col_barrio, col_comuna]
+          if col_barrio and col_comuna
           else None,
           zoom=11,
           height=500,
@@ -127,14 +147,16 @@ try:
     else:
       st.warning('No hay coordenadas válidas para mostrar en el mapa.')
   else:
-    st.error('El archivo no contiene las columnas lat y lon.')
+    st.error(
+        'No se encontraron las columnas de latitud y longitud (`lat` / `lon`).'
+    )
 
-  # --- SECCIÓN 3: COMUNAS CON MÁS HABILITACIONES ---
+  # --- SECCIÓN 3: COMUNAS ---
   st.markdown('---')
   st.subheader('🏆 3. Detalle de Comunas con Más Habilitaciones')
 
-  if 'comuna' in df.columns and not df.empty:
-    comuna_counts = df['comuna'].value_counts().reset_index()
+  if col_comuna and not df.empty:
+    comuna_counts = df[col_comuna].value_counts().reset_index()
     comuna_counts.columns = ['Comuna', 'Cantidad']
 
     col_c1, col_c2 = st.columns([1, 1])
@@ -154,19 +176,17 @@ try:
       st.markdown('**Ranking de Comunas:**')
       st.dataframe(comuna_counts, use_container_width=True, hide_index=True)
   else:
-    st.warning('No hay datos de comunas disponibles.')
+    st.warning('No se encontró la columna de comuna.')
 
-  # --- SECCIÓN 4: RUBROS QUE MÁS HAY POR COMUNA ---
+  # --- SECCIÓN 4: RUBROS POR COMUNA ---
   st.markdown('---')
   st.subheader('🔍 4. Detalle de Rubros Predominantes por Comuna')
 
-  if (
-      'comuna' in df.columns
-      and 'Rubro' in df.columns
-      and not df.empty
-  ):
+  if col_comuna and col_rubro and not df.empty:
     tabla_cruce = (
-        pd.crosstab(df['comuna'], df['Rubro'], margins=True, margins_name='Total')
+        pd.crosstab(
+            df[col_comuna], df[col_rubro], margins=True, margins_name='Total'
+        )
         .reset_index()
     )
     st.markdown(
@@ -177,11 +197,11 @@ try:
 
     st.markdown('**Rubro líder (mayoritario) por cada Comuna:**')
     df_lideres = (
-        df.groupby(['comuna', 'Rubro'])
+        df.groupby([col_comuna, col_rubro])
         .size()
         .reset_index(name='Cantidad')
     )
-    idx_max = df_lideres.groupby('comuna')['Cantidad'].idxmax()
+    idx_max = df_lideres.groupby(col_comuna)['Cantidad'].idxmax()
     df_lideres_top = df_lideres.loc[idx_max].sort_values(
         by='Cantidad', ascending=False
     )
@@ -190,7 +210,7 @@ try:
         df_lideres_top, use_container_width=True, hide_index=True
     )
   else:
-    st.warning('Se requieren las columnas "comuna" y "Rubro" para este análisis.')
+    st.warning('Se requieren las columnas de comuna y rubro para este análisis.')
 
   # --- TABLA COMPLETA Y DESCARGA ---
   st.markdown('---')
@@ -207,7 +227,7 @@ try:
 
 except Exception as e:
   st.error(
-      'Error al cargar la aplicación. Asegúrate de tener `datos_web.csv` con'
-      ' las columnas correctas en tu repositorio de GitHub.'
+      '❌ Ocurrió un error al cargar la aplicación. Aquí tienes el detalle'
+      ' técnico exacto:'
   )
-  st.write(f'Detalle técnico: {e}')
+  st.exception(e)
