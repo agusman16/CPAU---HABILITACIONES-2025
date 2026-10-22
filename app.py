@@ -1,17 +1,18 @@
 import pandas as pd
+import plotly.express as px
 import streamlit as st
 
-# Configuración de la página en ancho completo
+# Configuración de la página
 st.set_page_config(
     page_title='Monitor de Habilitaciones CABA',
-    page_icon='🏙️',
+    page_icon='📊',
     layout='wide',
 )
 
-st.title('🏙️ Monitor Integral de Habilitaciones - CABA')
+st.title('📊 Monitor de Habilitaciones Comerciales - CABA')
 st.write(
-    'Panel analítico con totales, porcentajes por rubro, mapeo general y'
-    ' particularidades por barrio.'
+    'Análisis territorial, distribución por rubros y estadísticas detalladas por'
+    ' comuna.'
 )
 
 
@@ -28,7 +29,7 @@ try:
   # --- BARRA LATERAL (FILTROS) ---
   st.sidebar.header('Filtros de Búsqueda')
 
-  # 1. Filtro por Comuna
+  # Filtro por Comuna
   if 'comuna' in df.columns:
     comunas = ['Todas'] + sorted(
         df['comuna'].dropna().astype(str).unique().tolist()
@@ -37,7 +38,7 @@ try:
     if comuna_elegida != 'Todas':
       df = df[df['comuna'].astype(str) == comuna_elegida]
 
-  # 2. Filtro por Barrio
+  # Filtro por Barrio
   if 'barrio' in df.columns:
     barrios = ['Todos'] + sorted(
         df['barrio'].dropna().astype(str).unique().tolist()
@@ -46,7 +47,7 @@ try:
     if barrio_elegido != 'Todos':
       df = df[df['barrio'].astype(str) == barrio_elegido]
 
-  # 3. Filtro por Rubro
+  # Filtro por Rubro
   if 'Rubro' in df.columns:
     rubros = ['Todos'] + sorted(
         df['Rubro'].dropna().astype(str).unique().tolist()
@@ -55,18 +56,32 @@ try:
     if rubro_elegido != 'Todos':
       df = df[df['Rubro'].astype(str) == rubro_elegido]
 
-  # --- SECCIÓN 1: MÉTRICAS GENERALES Y PORCENTAJES POR RUBRO ---
-  st.markdown('---')
-  st.subheader('📊 Resumen General y Porcentajes por Rubro')
-
   total_habilitaciones = len(df)
-  st.metric(
-      label='Total de Habilitaciones Analizadas',
-      value=f'{total_habilitaciones:,}',
-  )
+
+  # Detectar año o período si existe alguna columna relacionada
+  anio_texto = '2025 / 2026'
+  for col in df.columns:
+    if 'anio' in col.lower() or 'año' in col.lower() or 'fecha' in col.lower():
+      try:
+        anios_unicos = df[col].astype(str).str.extract(r'(20\d\d)').dropna()
+        if not anios_unicos.empty:
+          anio_texto = ', '.join(anios_unicos[0].unique())
+      except:
+        pass
+
+  # --- SECCIÓN 1: TOTALES, AÑO Y PORCENTAJES POR RUBRO ---
+  st.markdown('---')
+  st.subheader('📈 1. Totales, Año y Porcentajes por Rubro')
+
+  col_m1, col_m2 = st.columns(2)
+  with col_m1:
+    st.metric(
+        label='Habilitaciones Totales', value=f'{total_habilitaciones:,}'
+    )
+  with col_m2:
+    st.metric(label='Año / Período del Registro', value=anio_texto)
 
   if 'Rubro' in df.columns and total_habilitaciones > 0:
-    # Calcular cantidades y porcentajes
     rubro_counts = df['Rubro'].value_counts()
     rubro_pct = df['Rubro'].value_counts(normalize=True) * 100
     df_rubro = pd.DataFrame(
@@ -74,80 +89,109 @@ try:
     ).reset_index()
     df_rubro.columns = ['Rubro', 'Cantidad', 'Porcentaje (%)']
 
-    col_m1, col_m2 = st.columns([1, 1])
-
-    with col_m1:
-      st.markdown('**Distribución Porcentual**')
-      st.dataframe(
-          df_rubro.style.format({'Porcentaje (%)': '{:.2f}%'}),
-          use_container_width=True,
-          hide_index=True,
-      )
-
-    with col_m2:
-      st.markdown('**Gráfico de Rubros**')
-      st.bar_chart(df_rubro.set_index('Rubro')['Cantidad'])
+    st.markdown('**Distribución Porcentual por Rubro:**')
+    st.dataframe(
+        df_rubro.style.format({'Porcentaje (%)': '{:.2f}%'}),
+        use_container_width=True,
+        hide_index=True,
+    )
   else:
-    st.warning('No hay datos suficientes de rubros para mostrar.')
+    st.warning('No hay datos de rubros disponibles.')
 
-  # --- SECCIÓN 2: MAPA DE PUNTOS EN TODA LA CIUDAD ---
+  # --- SECCIÓN 2: MAPA CON PUNTOS DIFERENCIADOS POR RUBRO ---
   st.markdown('---')
-  st.subheader('🗺️ Distribución Geográfica (Puntos en la Ciudad)')
+  st.subheader('🗺️ 2. Mapa de Distribución Territorial (Puntos por Rubro)')
 
   if 'lat' in df.columns and 'lon' in df.columns:
     df_mapa = df.dropna(subset=['lat', 'lon'])
     if not df_mapa.empty:
-      st.map(df_mapa, latitude='lat', longitude='lon', zoom=11)
-      st.caption(
-          f'Mostrando {len(df_mapa):,} puntos geolocalizados en el mapa.'
+      fig_map = px.scatter_mapbox(
+          df_mapa,
+          lat='lat',
+          lon='lon',
+          color='Rubro' if 'Rubro' in df.columns else None,
+          hover_name='Razon Social'
+          if 'Razon Social' in df.columns
+          else df.columns[0],
+          hover_data=['barrio', 'comuna']
+          if 'barrio' in df.columns and 'comuna' in df.columns
+          else None,
+          zoom=11,
+          height=500,
       )
+      fig_map.update_layout(
+          mapbox_style='open-street-map', margin=dict(l=0, r=0, t=0, b=0)
+      )
+      st.plotly_chart(fig_map, use_container_width=True)
     else:
       st.warning('No hay coordenadas válidas para mostrar en el mapa.')
   else:
     st.error('El archivo no contiene las columnas lat y lon.')
 
-  # --- SECCIÓN 3: ESTADÍSTICAS POR BARRIO Y PARTICULARIDADES ---
+  # --- SECCIÓN 3: COMUNAS CON MÁS HABILITACIONES ---
   st.markdown('---')
-  st.subheader('🏙️ Estadísticas y Particularidades por Barrio')
+  st.subheader('🏆 3. Detalle de Comunas con Más Habilitaciones')
 
-  if 'barrio' in df.columns and not df.empty:
-    barrio_counts = df['barrio'].value_counts().reset_index()
-    barrio_counts.columns = ['Barrio', 'Cantidad']
+  if 'comuna' in df.columns and not df.empty:
+    comuna_counts = df['comuna'].value_counts().reset_index()
+    comuna_counts.columns = ['Comuna', 'Cantidad']
 
-    col_b1, col_b2 = st.columns([1, 1])
-
-    with col_b1:
-      st.markdown('**Concentración por Barrio**')
-      st.bar_chart(barrio_counts.set_index('Barrio'))
-
-    with col_b2:
-      st.markdown('🔍 **Particularidades y Zonas a Atender**')
-      # Generar insights automáticos basados en los datos filtrados
-      top_barrio = barrio_counts.iloc[0]['Barrio']
-      top_cant = barrio_counts.iloc[0]['Cantidad']
-      pct_top = (top_cant / total_habilitaciones) * 100 if total_habilitaciones > 0 else 0
-      
-      st.info(
-          f'• **Mayor concentración:** El barrio con mayor actividad registrada es **{top_barrio}**, '
-          f'acumulando **{top_cant:,}** habilitaciones ({pct_top:.1f}% del total filtrado).'
+    col_c1, col_c2 = st.columns([1, 1])
+    with col_c1:
+      fig_comuna = px.bar(
+          comuna_counts,
+          x='Comuna',
+          y='Cantidad',
+          text='Cantidad',
+          title='Habilitaciones por Comuna',
+          color='Cantidad',
+          color_continuousScale='Blues',
       )
-      
-      if len(barrio_counts) > 1:
-        bottom_barrio = barrio_counts.iloc[-1]['Barrio']
-        bottom_cant = barrio_counts.iloc[-1]['Cantidad']
-        st.warning(
-            f'• **Menor presencia:** El barrio con menor dinámica en esta selección es **{bottom_barrio}** '
-            f'con solo **{bottom_cant}** registros a atender.'
-        )
-      
-      st.success(
-          '• **Control territorial:** Utilice los filtros laterales de Comuna y Rubro para aislar '
-          'zonas específicas y detectar desequilibrios comerciales o áreas de oportunidad.'
-      )
+      st.plotly_chart(fig_comuna, use_container_width=True)
+
+    with col_c2:
+      st.markdown('**Ranking de Comunas:**')
+      st.dataframe(comuna_counts, use_container_width=True, hide_index=True)
   else:
-    st.warning('No hay datos de barrios disponibles.')
+    st.warning('No hay datos de comunas disponibles.')
 
-  # --- TABLA DE DATOS Y DESCARGA ---
+  # --- SECCIÓN 4: RUBROS QUE MÁS HAY POR COMUNA ---
+  st.markdown('---')
+  st.subheader('🔍 4. Detalle de Rubros Predominantes por Comuna')
+
+  if (
+      'comuna' in df.columns
+      and 'Rubro' in df.columns
+      and not df.empty
+  ):
+    tabla_cruce = (
+        pd.crosstab(df['comuna'], df['Rubro'], margins=True, margins_name='Total')
+        .reset_index()
+    )
+    st.markdown(
+        'Matriz de distribución: Cantidad de habilitaciones por Rubro en cada'
+        ' Comuna'
+    )
+    st.dataframe(tabla_cruce, use_container_width=True)
+
+    st.markdown('**Rubro líder (mayoritario) por cada Comuna:**')
+    df_lideres = (
+        df.groupby(['comuna', 'Rubro'])
+        .size()
+        .reset_index(name='Cantidad')
+    )
+    idx_max = df_lideres.groupby('comuna')['Cantidad'].idxmax()
+    df_lideres_top = df_lideres.loc[idx_max].sort_values(
+        by='Cantidad', ascending=False
+    )
+    df_lideres_top.columns = ['Comuna', 'Rubro Principal', 'Cantidad']
+    st.dataframe(
+        df_lideres_top, use_container_width=True, hide_index=True
+    )
+  else:
+    st.warning('Se requieren las columnas "comuna" y "Rubro" para este análisis.')
+
+  # --- TABLA COMPLETA Y DESCARGA ---
   st.markdown('---')
   st.subheader('📋 Detalle Completo de Registros')
   st.dataframe(df, use_container_width=True)
@@ -156,13 +200,13 @@ try:
   st.download_button(
       label='📥 Descargar datos filtrados en CSV',
       data=csv_export,
-      file_name='habilitaciones_filtradas_reporte.csv',
+      file_name='habilitaciones_filtradas_por_comuna.csv',
       mime='text/csv',
   )
 
 except Exception as e:
   st.error(
       'Error al cargar la aplicación. Asegúrate de tener `datos_web.csv` con'
-      ' las columnas correctas en tu repositorio.'
+      ' las columnas correctas en tu repositorio de GitHub.'
   )
   st.write(f'Detalle técnico: {e}')
