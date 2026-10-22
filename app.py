@@ -1,17 +1,17 @@
 import pandas as pd
-import pydeck as pdk
 import streamlit as st
 
 # Configuración de la página en ancho completo
 st.set_page_config(
-    page_title='Monitor Avanzado de Habilitaciones CABA',
-    page_icon='📊',
+    page_title='Monitor de Habilitaciones CABA',
+    page_icon='🏙️',
     layout='wide',
 )
 
-st.title('📊 Monitor Avanzado e Interactivo de Habilitaciones - CABA')
+st.title('🏙️ Monitor Integral de Habilitaciones - CABA')
 st.write(
-    'Visualizador con estadísticas por rubro/barrio y mapa de calor interactivo.'
+    'Panel analítico con totales, porcentajes por rubro, mapeo general y'
+    ' particularidades por barrio.'
 )
 
 
@@ -37,7 +37,7 @@ try:
     if comuna_elegida != 'Todas':
       df = df[df['comuna'].astype(str) == comuna_elegida]
 
-  # 2. Filtro por Barrio (Dinámico según la comuna si se desea)
+  # 2. Filtro por Barrio
   if 'barrio' in df.columns:
     barrios = ['Todos'] + sorted(
         df['barrio'].dropna().astype(str).unique().tolist()
@@ -55,88 +55,108 @@ try:
     if rubro_elegido != 'Todos':
       df = df[df['Rubro'].astype(str) == rubro_elegido]
 
-  # --- CUERPO PRINCIPAL: MÉTRICAS ---
+  # --- SECCIÓN 1: MÉTRICAS GENERALES Y PORCENTAJES POR RUBRO ---
+  st.markdown('---')
+  st.subheader('📊 Resumen General y Porcentajes por Rubro')
+
+  total_habilitaciones = len(df)
   st.metric(
-      label='Total de Habilitaciones Filtradas', value=f'{len(df):,}'
+      label='Total de Habilitaciones Analizadas',
+      value=f'{total_habilitaciones:,}',
   )
 
-  # --- SECCIÓN DE ESTADÍSTICAS (GRÁFICOS) ---
+  if 'Rubro' in df.columns and total_habilitaciones > 0:
+    # Calcular cantidades y porcentajes
+    rubro_counts = df['Rubro'].value_counts()
+    rubro_pct = df['Rubro'].value_counts(normalize=True) * 100
+    df_rubro = pd.DataFrame(
+        {'Cantidad': rubro_counts, 'Porcentaje (%)': rubro_pct}
+    ).reset_index()
+    df_rubro.columns = ['Rubro', 'Cantidad', 'Porcentaje (%)']
+
+    col_m1, col_m2 = st.columns([1, 1])
+
+    with col_m1:
+      st.markdown('**Distribución Porcentual**')
+      st.dataframe(
+          df_rubro.style.format({'Porcentaje (%)': '{:.2f}%'}),
+          use_container_width=True,
+          hide_index=True,
+      )
+
+    with col_m2:
+      st.markdown('**Gráfico de Rubros**')
+      st.bar_chart(df_rubro.set_index('Rubro')['Cantidad'])
+  else:
+    st.warning('No hay datos suficientes de rubros para mostrar.')
+
+  # --- SECCIÓN 2: MAPA DE PUNTOS EN TODA LA CIUDAD ---
   st.markdown('---')
-  st.subheader('📈 Estadísticas y Distribución')
-
-  col_est1, col_est2 = st.columns(2)
-
-  with col_est1:
-    st.markdown('**Cantidad por Rubro**')
-    if 'Rubro' in df.columns and not df.empty:
-      df_rubro = df['Rubro'].value_counts().reset_index()
-      df_rubro.columns = ['Rubro', 'Cantidad']
-      st.bar_chart(df_rubro.set_index('Rubro'))
-    else:
-      st.write('No hay datos suficientes.')
-
-  with col_est2:
-    st.markdown('**Cantidad por Barrio**')
-    if 'barrio' in df.columns and not df.empty:
-      df_barrio = df['barrio'].value_counts().reset_index()
-      df_barrio.columns = ['Barrio', 'Cantidad']
-      st.bar_chart(df_barrio.set_index('Barrio'))
-    else:
-      st.write('No hay datos suficientes.')
-
-  # --- SECCIÓN DE MAPA DE CALOR INTERACTIVO ---
-  st.markdown('---')
-  st.subheader('🔥 Mapa de Calor Interactivo (Concentración)')
+  st.subheader('🗺️ Distribución Geográfica (Puntos en la Ciudad)')
 
   if 'lat' in df.columns and 'lon' in df.columns:
     df_mapa = df.dropna(subset=['lat', 'lon'])
     if not df_mapa.empty:
-      # Configuración de la capa de calor 3D (HexagonLayer) con PyDeck
-      layer = pdk.Layer(
-          'HexagonLayer',
-          data=df_mapa,
-          get_position=['lon', 'lat'],
-          radius=200,  # Radio de agrupaicón en metros
-          elevation_scale=50,
-          elevation_range=[0, 1000],
-          pickable=True,
-          extruded=True,
-          coverage=1,
+      st.map(df_mapa, latitude='lat', longitude='lon', zoom=11)
+      st.caption(
+          f'Mostrando {len(df_mapa):,} puntos geolocalizados en el mapa.'
       )
-
-      # Centrar el mapa en base a los puntos filtrados
-      view_state = pdk.ViewState(
-          latitude=df_mapa['lat'].mean(),
-          longitude=df_mapa['lon'].mean(),
-          zoom=12,
-          pitch=45,  # Inclinación para efecto 3D
-      )
-
-      # Renderizar el mapa interactivo
-      r = pdk.Deck(
-          layers=[layer],
-          initial_view_state=view_state,
-          tooltip={
-              'html': '<b>Concentración de Habilitaciones:</b> {elevationValue}',
-              'style': {'backgroundColor': 'steelblue', 'color': 'white'},
-          },
-      )
-      st.pydeck_chart(r)
     else:
-      st.warning('No hay coordenadas válidas para generar el mapa de calor.')
+      st.warning('No hay coordenadas válidas para mostrar en el mapa.')
   else:
     st.error('El archivo no contiene las columnas lat y lon.')
 
+  # --- SECCIÓN 3: ESTADÍSTICAS POR BARRIO Y PARTICULARIDADES ---
+  st.markdown('---')
+  st.subheader('🏙️ Estadísticas y Particularidades por Barrio')
+
+  if 'barrio' in df.columns and not df.empty:
+    barrio_counts = df['barrio'].value_counts().reset_index()
+    barrio_counts.columns = ['Barrio', 'Cantidad']
+
+    col_b1, col_b2 = st.columns([1, 1])
+
+    with col_b1:
+      st.markdown('**Concentración por Barrio**')
+      st.bar_chart(barrio_counts.set_index('Barrio'))
+
+    with col_b2:
+      st.markdown('🔍 **Particularidades y Zonas a Atender**')
+      # Generar insights automáticos basados en los datos filtrados
+      top_barrio = barrio_counts.iloc[0]['Barrio']
+      top_cant = barrio_counts.iloc[0]['Cantidad']
+      pct_top = (top_cant / total_habilitaciones) * 100 if total_habilitaciones > 0 else 0
+      
+      st.info(
+          f'• **Mayor concentración:** El barrio con mayor actividad registrada es **{top_barrio}**, '
+          f'acumulando **{top_cant:,}** habilitaciones ({pct_top:.1f}% del total filtrado).'
+      )
+      
+      if len(barrio_counts) > 1:
+        bottom_barrio = barrio_counts.iloc[-1]['Barrio']
+        bottom_cant = barrio_counts.iloc[-1]['Cantidad']
+        st.warning(
+            f'• **Menor presencia:** El barrio con menor dinámica en esta selección es **{bottom_barrio}** '
+            f'con solo **{bottom_cant}** registros a atender.'
+        )
+      
+      st.success(
+          '• **Control territorial:** Utilice los filtros laterales de Comuna y Rubro para aislar '
+          'zonas específicas y detectar desequilibrios comerciales o áreas de oportunidad.'
+      )
+  else:
+    st.warning('No hay datos de barrios disponibles.')
+
   # --- TABLA DE DATOS Y DESCARGA ---
   st.markdown('---')
-  st.subheader('📋 Detalle de Registros')
+  st.subheader('📋 Detalle Completo de Registros')
   st.dataframe(df, use_container_width=True)
 
   csv_export = df.to_csv(index=False).encode('utf-8')
   st.download_button(
       label='📥 Descargar datos filtrados en CSV',
       data=csv_export,
-      file_name='habilitaciones_filtradas_estadisticas.csv',
+      file_name='habilitaciones_filtradas_reporte.csv',
       mime='text/csv',
   )
 
